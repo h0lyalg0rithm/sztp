@@ -1,11 +1,12 @@
 name: Release
 
 on:
+  push:
   workflow_dispatch:
   release:
     types: [published]
 
 jobs:
-  release-docker:
-    uses: ./.github/workflows/sztp.yml
+  release-binaries:
+    uses: ./.github/workflows/binaries.yaml
     secrets: inherit
