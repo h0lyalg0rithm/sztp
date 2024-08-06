@@ -8,16 +8,11 @@ Copyright (C) 2022 Red Hat.
 package secureagent
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -36,53 +31,16 @@ func (a *Agent) downloadAndValidateImage() error {
 		if err != nil {
 			return err
 		}
-
-		caCert, _ := os.ReadFile(a.GetBootstrapTrustAnchorCert())
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCert)
-		cert, _ := tls.LoadX509KeyPair(a.GetDeviceEndEntityCert(), a.GetDevicePrivateKey())
-
-		check := http.Client{
-			CheckRedirect: func(r *http.Request, _ []*http.Request) error {
-				r.URL.Opaque = r.URL.Path
-				return nil
-			},
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					//nolint:gosec
-					InsecureSkipVerify: true, // TODO: remove skip verify
-					RootCAs:            caCertPool,
-					Certificates:       []tls.Certificate{cert},
-				},
-			},
-		}
-
-		response, err := check.Get(item)
+		err = a.downloadImage(item, file)
 		if err != nil {
 			return err
 		}
 
-		sizeorigin, _ := strconv.Atoi(response.Header.Get("Content-Length"))
-		downloadSize := int64(sizeorigin)
-		log.Printf("[INFO] Downloading the image with size: %v", downloadSize)
-
-		if response.StatusCode != 200 {
-			return errors.New("received non 200 response code")
-		}
-		size, err := io.Copy(file, response.Body)
+		fileInfo, err := file.Stat()
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if err := file.Close(); err != nil {
-				log.Println("[ERROR] Error when closing:", err)
-			}
-		}()
-		defer func() {
-			if err := response.Body.Close(); err != nil {
-				log.Println("[ERROR] Error when closing:", err)
-			}
-		}()
+		size := fileInfo.Size()
 
 		log.Printf("[INFO] Downloaded file: %s with size: %d", ARTIFACTS_PATH+a.BootstrapServerOnboardingInfo.IetfSztpConveyedInfoOnboardingInformation.InfoTimestampReference+filepath.Base(item), size)
 		log.Println("[INFO] Verify the file checksum: ", ARTIFACTS_PATH+a.BootstrapServerOnboardingInfo.IetfSztpConveyedInfoOnboardingInformation.InfoTimestampReference+filepath.Base(item))

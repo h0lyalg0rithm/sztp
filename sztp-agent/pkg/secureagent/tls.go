@@ -92,3 +92,53 @@ func (a *Agent) doTLSRequest(input string, url string, empty bool) (*BootstrapSe
 	}
 	return &postResponse, nil
 }
+
+func (a *Agent) downloadImage(uri string, file *os.File) error {
+	caCert, _ := os.ReadFile(a.GetBootstrapTrustAnchorCert())
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+	cert, _ := tls.LoadX509KeyPair(a.GetDeviceEndEntityCert(), a.GetDevicePrivateKey())
+
+	check := http.Client{
+		CheckRedirect: func(r *http.Request, _ []*http.Request) error {
+			r.URL.Opaque = r.URL.Path
+			return nil
+		},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				//nolint:gosec
+				InsecureSkipVerify: true, // TODO: remove skip verify
+				RootCAs:            caCertPool,
+				Certificates:       []tls.Certificate{cert},
+			},
+		},
+	}
+
+	response, err := check.Get(uri)
+	if err != nil {
+		return err
+	}
+
+	sizeorigin, _ := strconv.Atoi(response.Header.Get("Content-Length"))
+	downloadSize := int64(sizeorigin)
+	log.Printf("[INFO] Downloading the image with size: %v", downloadSize)
+
+	if response.StatusCode != 200 {
+		return errors.New("received non 200 response code")
+	}
+	_, err = io.Copy(file, response.Body)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Println("[ERROR] Error when closing:", err)
+		}
+	}()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			log.Println("[ERROR] Error when closing:", err)
+		}
+	}()
+	return nil
+}
